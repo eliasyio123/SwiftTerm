@@ -1,4 +1,4 @@
-name: Build Xterm IPA
+name: Force Build Xterm IPA
 
 on:
   workflow_dispatch:
@@ -18,31 +18,79 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_16.app
           xcodebuild -version
       
-      - name: Override Package.swift for compatibility
+      - name: NUKE ALL PACKAGE CACHES
         run: |
-          # Fix swift-nio-ssh version constraint
-          sed -i '' 's/from: "0.12.0"/exact: "0.12.0"/g' Package.swift
-          
-          # Show the change
-          cat Package.swift | grep -A 2 -B 2 "swift-nio-ssh"
-      
-      - name: Force dependency resolution
-        run: |
-          cd TerminalApp
-          
-          # Clean package cache
           rm -rf ~/Library/Developer/Xcode/DerivedData/SourcePackages
           rm -rf ~/Library/Developer/Xcode/DerivedData/SwiftTerm-*
-          
-          # Resolve with explicit versions
-          xcodebuild -resolvePackageDependencies \
-            -project iOSTerminal.xcodeproj \
-            -scheme iOSTerminal \
-            -clonedSourcePackagesDirPath ~/Library/Developer/Xcode/DerivedData/SourcePackages \
-            -usePackageSupportBuiltin
+          rm -rf ~/Library/Caches/org.swift.swiftpm
+          rm -rf TerminalApp.xcworkspace/xcshareddata/swiftpm
       
-      - name: Build IPA
+      - name: OVERRIDE Package.swift FORCEFULLY
         run: |
+          # Find and replace in all possible locations
+          find . -name "Package.swift" -type f -exec sed -i '' 's/from: "0.12.0"/exact: "0.12.0"/g' {} \;
+          find . -name "*.swift" -type f -exec grep -l "swift-nio-ssh" {} \; -exec sed -i '' 's/\.package(url: "https:\/\/github.com\/apple\/swift-nio-ssh.git", from: "0.12.0")/.package(url: "https:\/\/github.com\/apple\/swift-nio-ssh.git", exact: "0.12.0")/g' {} \;
+          
+          # Show what we changed
+          grep -r "swift-nio-ssh" --include="*.swift" .
+      
+      - name: Create NEW Package.swift at root
+        run: |
+          cat > Package.swift << 'EOF'
+          // swift-tools-version:6.0
+          import PackageDescription
+
+          let package = Package(
+              name: "SwiftTerm",
+              products: [
+                  .library(name: "SwiftTerm", targets: ["SwiftTerm"]),
+              ],
+              dependencies: [
+                  .package(url: "https://github.com/apple/swift-nio-ssh.git", exact: "0.12.0"),
+                  .package(url: "https://github.com/apple/swift-nio.git", from: "2.0.0"),
+                  .package(url: "https://github.com/apple/swift-crypto.git", from: "2.0.0"),
+                  .package(url: "https://github.com/apple/swift-collections.git", from: "1.0.0"),
+              ],
+              targets: [
+                  .target(
+                      name: "SwiftTerm",
+                      dependencies: [
+                          .product(name: "NIOSSH", package: "swift-nio-ssh"),
+                          .product(name: "NIO", package: "swift-nio"),
+                          .product(name: "Crypto", package: "swift-crypto"),
+                          .product(name: "DequeModule", package: "swift-collections"),
+                      ],
+                      path: "Sources/SwiftTerm"
+                  ),
+              ]
+          )
+          EOF
+          
+          # Also fix TerminalApp/Package.swift if it exists
+          mkdir -p TerminalApp
+          cp Package.swift TerminalApp/ 2>/dev/null || true
+      
+      - name: Manual dependency resolution
+        run: |
+          # Clone dependencies manually
+          mkdir -p .build/checkouts
+          cd .build/checkouts
+          
+          # Clone swift-nio-ssh at exact version
+          git clone --branch 0.12.0 https://github.com/apple/swift-nio-ssh.git
+          
+          # Clone other dependencies
+          git clone --branch 2.61.0 https://github.com/apple/swift-nio.git
+          git clone --branch 3.6.0 https://github.com/apple/swift-crypto.git
+          git clone --branch 1.1.0 https://github.com/apple/swift-collections.git
+          
+          cd ../..
+      
+      - name: Build with Xcode ignoring package resolution
+        run: |
+          # Tell Xcode to use local packages
+          echo "DEVELOPMENT_TEAM = ''" > local.xcconfig
+          
           xcodebuild archive \
             -project TerminalApp/iOSTerminal.xcodeproj \
             -scheme iOSTerminal \
@@ -51,17 +99,56 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            -clonedSourcePackagesDirPath ~/Library/Developer/Xcode/DerivedData/SourcePackages \
+            -clonedSourcePackagesDirPath "$(pwd)/.build" \
             -skipPackagePluginValidation \
-            -usePackageSupportBuiltin
+            -usePackageSupportBuiltin \
+            -allowProvisioningUpdates \
+            -allowProvisioningDeviceRegistration \
+            GCC_PREPROCESSOR_DEFINITIONS='$(inherited) DEBUG=1'
+      
+      - name: Create IPA
+        run: |
+          # Check if archive exists
+          if [ ! -d "build/xterm.xcarchive" ]; then
+            echo "Archive failed, trying direct build"
+            
+            # Try direct build to .app
+            xcodebuild build \
+              -project TerminalApp/iOSTerminal.xcodeproj \
+              -scheme iOSTerminal \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath build/derived \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO
+              
+            APP_PATH=$(find build/derived -name "*.app" -type d | head -1)
+            if [ -n "$APP_PATH" ]; then
+              mkdir -p Payload
+              cp -R "$APP_PATH" Payload/
+            fi
+          else
+            # Normal path
+            mkdir -p Payload
+            cp -R build/xterm.xcarchive/Products/Applications/iOSTerminal.app Payload/ 2>/dev/null || \
+            cp -R build/xterm.xcarchive/Products/Applications/*.app Payload/
+          fi
+          
+          # Verify we have an app
+          ls -la Payload/
           
           # Create IPA
-          mkdir -p Payload
-          cp -R build/xterm.xcarchive/Products/Applications/iOSTerminal.app Payload/
           zip -r Xterm.ipa Payload/
+          
+          # Final verification
+          ls -la Xterm.ipa
+          file Xterm.ipa
       
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: xterm-ipa
           path: Xterm.ipa
+          if-no-files-found: warn
+          retention-days: 90
