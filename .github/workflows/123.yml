@@ -1,0 +1,72 @@
+name: Build Xterm IPA
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout SwiftTerm
+        uses: actions/checkout@v4
+        with:
+          repository: migueldeicaza/SwiftTerm
+          submodules: recursive
+      
+      - name: Select Xcode 16
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.app
+          xcodebuild -version
+      
+      - name: Resolve dependencies
+        run: |
+          cd TerminalApp
+          xcodebuild -resolvePackageDependencies \
+            -project iOSTerminal.xcodeproj \
+            -scheme iOSTerminal \
+            -clonedSourcePackagesDirPath ~/Library/Developer/Xcode/DerivedData/SourcePackages
+      
+      - name: Build Archive
+        run: |
+          xcodebuild archive \
+            -project TerminalApp/iOSTerminal.xcodeproj \
+            -scheme iOSTerminal \
+            -configuration Release \
+            -archivePath build/xterm.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -clonedSourcePackagesDirPath ~/Library/Developer/Xcode/DerivedData/SourcePackages
+      
+      - name: Create IPA
+        run: |
+          # Verify archive exists
+          ls -la build/xterm.xcarchive/Products/Applications/
+          
+          # Create Payload directory
+          mkdir -p Payload
+          
+          # Copy app
+          cp -R build/xterm.xcarchive/Products/Applications/iOSTerminal.app Payload/
+          
+          # Verify app was copied
+          ls -la Payload/
+          
+          # Create IPA
+          zip -r Xterm.ipa Payload/
+          
+          # Verify IPA was created
+          ls -la Xterm.ipa
+          file Xterm.ipa
+          pwd
+      
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: xterm-ipa
+          path: Xterm.ipa
+          if-no-files-found: error
+          retention-days: 90
