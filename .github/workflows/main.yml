@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-14  # Keep macos-14, use Swift 5.10
     steps:
       - name: Checkout SwiftTerm
         uses: actions/checkout@v4
@@ -19,9 +19,9 @@ jobs:
           mkdir -p MyTerminalApp/MyTerminalApp
           cd MyTerminalApp
           
-          # Create Package.swift for the app
+          # Create Package.swift with Swift 5.10
           cat > Package.swift << 'EOF'
-          // swift-tools-version:6.0
+          // swift-tools-version:5.10
           import PackageDescription
           
           let package = Package(
@@ -31,7 +31,7 @@ jobs:
                   .executable(name: "MyTerminalApp", targets: ["MyTerminalApp"])
               ],
               dependencies: [
-                  .package(path: "../SwiftTerm")  // Local dependency
+                  .package(path: "../SwiftTerm")
               ],
               targets: [
                   .executableTarget(
@@ -45,12 +45,11 @@ jobs:
           )
           EOF
           
-          # Create main.swift
+          # Create main.swift with corrected @main
           cat > MyTerminalApp/main.swift << 'EOF'
           import SwiftTerm
           import UIKit
           
-          // Minimal terminal app
           class TerminalViewController: UIViewController, TerminalViewDelegate {
               let terminal = TerminalView()
               
@@ -67,9 +66,7 @@ jobs:
               func setTerminalTitle(source: TerminalView, title: String) {}
               func hostCurrentDirectoryUpdate(source: TerminalView, currentDirectory: String?) {}
               func send(source: TerminalView, data: ArraySlice<UInt8>) {
-                  // Handle input
                   if let str = String(bytes: data, encoding: .utf8) {
-                      print("Input: \(str)")
                       if str == "\r" {
                           terminal.feed(text: "\r\n$ ")
                       }
@@ -78,18 +75,7 @@ jobs:
           }
           
           @main
-          struct TerminalApp {
-              static func main() {
-                  UIApplicationMain(
-                      CommandLine.argc,
-                      CommandLine.unsafeArgv,
-                      nil,
-                      NSStringFromClass(TerminalAppDelegate.self)
-                  )
-              }
-          }
-          
-          class TerminalAppDelegate: UIResponder, UIApplicationDelegate {
+          class AppDelegate: UIResponder, UIApplicationDelegate {
               var window: UIWindow?
               
               func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
@@ -187,9 +173,9 @@ jobs:
           swift build \
             -c release \
             -Xswiftc "-sdk" \
-            -Xswiftc "$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -Xswiftc "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
             -Xswiftc "-target" \
-            -Xswiftc "arm64-apple-ios15.0"
+            -Xswiftc "arm64-apple-ios15.0-simulator"
           
           # Find the built executable
           APP_EXEC=$(find .build -name "MyTerminalApp" -type f | head -1)
@@ -197,8 +183,6 @@ jobs:
             # Create app bundle structure
             mkdir -p Payload/MyTerminalApp.app
             cp "$APP_EXEC" Payload/MyTerminalApp.app/
-            
-            # Copy Info.plist
             cp MyTerminalApp/Info.plist Payload/MyTerminalApp.app/
             
             # Create IPA
