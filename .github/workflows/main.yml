@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14  # Keep macos-14, use Swift 5.10
+    runs-on: macos-14
     steps:
       - name: Checkout SwiftTerm
         uses: actions/checkout@v4
@@ -19,13 +19,14 @@ jobs:
           mkdir -p MyTerminalApp/MyTerminalApp
           cd MyTerminalApp
           
-          # Create Package.swift with Swift 5.10
+          # Create Package.swift with Swift 5.10 AND defaultLocalization
           cat > Package.swift << 'EOF'
           // swift-tools-version:5.10
           import PackageDescription
           
           let package = Package(
               name: "MyTerminalApp",
+              defaultLocalization: "en",
               platforms: [.iOS(.v15)],
               products: [
                   .executable(name: "MyTerminalApp", targets: ["MyTerminalApp"])
