@@ -1,4 +1,4 @@
-name: Build from Working Fork
+name: Build Xterm IPA
 
 on:
   workflow_dispatch:
@@ -7,30 +7,208 @@ jobs:
   build:
     runs-on: macos-14
     steps:
-      - name: Checkout working fork
+      - name: Checkout SwiftTerm
         uses: actions/checkout@v4
         with:
-          repository: karwa/SwiftTerm  # This fork has fixed dependencies
-          submodules: recursive
-          ref: main
+          repository: migueldeicaza/SwiftTerm
+          path: SwiftTerm
       
-      - name: Build
+      - name: Create iOS App Project
         run: |
-          xcodebuild archive \
-            -project TerminalApp/iOSTerminal.xcodeproj \
-            -scheme iOSTerminal \
-            -configuration Release \
-            -archivePath build/xterm.xcarchive \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+          # Create iOS app that uses SwiftTerm
+          mkdir -p MyTerminalApp/MyTerminalApp
+          cd MyTerminalApp
           
-          mkdir -p Payload
-          cp -R build/xterm.xcarchive/Products/Applications/iOSTerminal.app Payload/
-          zip -r Xterm.ipa Payload/
+          # Create Package.swift for the app
+          cat > Package.swift << 'EOF'
+          // swift-tools-version:6.0
+          import PackageDescription
+          
+          let package = Package(
+              name: "MyTerminalApp",
+              platforms: [.iOS(.v15)],
+              products: [
+                  .executable(name: "MyTerminalApp", targets: ["MyTerminalApp"])
+              ],
+              dependencies: [
+                  .package(path: "../SwiftTerm")  // Local dependency
+              ],
+              targets: [
+                  .executableTarget(
+                      name: "MyTerminalApp",
+                      dependencies: [
+                          .product(name: "SwiftTerm", package: "SwiftTerm")
+                      ],
+                      path: "MyTerminalApp"
+                  )
+              ]
+          )
+          EOF
+          
+          # Create main.swift
+          cat > MyTerminalApp/main.swift << 'EOF'
+          import SwiftTerm
+          import UIKit
+          
+          // Minimal terminal app
+          class TerminalViewController: UIViewController, TerminalViewDelegate {
+              let terminal = TerminalView()
+              
+              override func viewDidLoad() {
+                  super.viewDidLoad()
+                  terminal.frame = view.bounds
+                  terminal.terminalDelegate = self
+                  view.addSubview(terminal)
+                  terminal.getTerminal().setCursorStyle(.blinkBlock)
+                  terminal.feed(text: "Welcome to Terminal\r\n$ ")
+              }
+              
+              func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {}
+              func setTerminalTitle(source: TerminalView, title: String) {}
+              func hostCurrentDirectoryUpdate(source: TerminalView, currentDirectory: String?) {}
+              func send(source: TerminalView, data: ArraySlice<UInt8>) {
+                  // Handle input
+                  if let str = String(bytes: data, encoding: .utf8) {
+                      print("Input: \(str)")
+                      if str == "\r" {
+                          terminal.feed(text: "\r\n$ ")
+                      }
+                  }
+              }
+          }
+          
+          @main
+          struct TerminalApp {
+              static func main() {
+                  UIApplicationMain(
+                      CommandLine.argc,
+                      CommandLine.unsafeArgv,
+                      nil,
+                      NSStringFromClass(TerminalAppDelegate.self)
+                  )
+              }
+          }
+          
+          class TerminalAppDelegate: UIResponder, UIApplicationDelegate {
+              var window: UIWindow?
+              
+              func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+                  window = UIWindow(frame: UIScreen.main.bounds)
+                  window?.rootViewController = TerminalViewController()
+                  window?.makeKeyAndVisible()
+                  return true
+              }
+          }
+          EOF
+          
+          # Create Info.plist
+          cat > MyTerminalApp/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key>
+              <string>en</string>
+              <key>CFBundleExecutable</key>
+              <string>MyTerminalApp</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.example.MyTerminalApp</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>MyTerminalApp</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSRequiresIPhoneOS</key>
+              <true/>
+              <key>UILaunchStoryboardName</key>
+              <string>LaunchScreen</string>
+              <key>UIRequiredDeviceCapabilities</key>
+              <array>
+                  <string>arm64</string>
+              </array>
+              <key>UISupportedInterfaceOrientations</key>
+              <array>
+                  <string>UIInterfaceOrientationPortrait</string>
+              </array>
+          </dict>
+          </plist>
+          EOF
+          
+          # Create minimal launch screen
+          mkdir -p MyTerminalApp/Base.lproj
+          cat > MyTerminalApp/Base.lproj/LaunchScreen.storyboard << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="21701" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+              <dependencies>
+                  <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21678"/>
+              </dependencies>
+              <scenes>
+                  <scene sceneID="EHf-IW-A2E">
+                      <objects>
+                          <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                              <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
+                                  <rect key="frame" x="0.0" y="0.0" width="390" height="844"/>
+                                  <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                  <subviews>
+                                      <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Terminal" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="KXk-eL-1wT">
+                                          <rect key="frame" x="155" y="411" width="80" height="21"/>
+                                          <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                          <color key="textColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                                          <nil key="highlightedColor"/>
+                                      </label>
+                                  </subviews>
+                                  <color key="backgroundColor" red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                  <constraints>
+                                      <constraint firstItem="KXk-eL-1wT" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="HdA-bg-5cC"/>
+                                      <constraint firstItem="KXk-eL-1wT" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="vFv-uW-yPc"/>
+                                  </constraints>
+                              </view>
+                          </viewController>
+                          <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+                      </objects>
+                      <point key="canvasLocation" x="52.173913043478265" y="375"/>
+                  </scene>
+              </scenes>
+          </document>
+          EOF
+          
+          cd ..
       
-      - name: Upload
+      - name: Build App
+        run: |
+          cd MyTerminalApp
+          
+          # Build using SwiftPM
+          swift build \
+            -c release \
+            -Xswiftc "-sdk" \
+            -Xswiftc "$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -Xswiftc "-target" \
+            -Xswiftc "arm64-apple-ios15.0"
+          
+          # Find the built executable
+          APP_EXEC=$(find .build -name "MyTerminalApp" -type f | head -1)
+          if [ -n "$APP_EXEC" ]; then
+            # Create app bundle structure
+            mkdir -p Payload/MyTerminalApp.app
+            cp "$APP_EXEC" Payload/MyTerminalApp.app/
+            
+            # Copy Info.plist
+            cp MyTerminalApp/Info.plist Payload/MyTerminalApp.app/
+            
+            # Create IPA
+            cd Payload
+            zip -r ../MyTerminalApp.ipa *
+            cd ..
+          fi
+      
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: xterm-ipa
-          path: Xterm.ipa
+          name: terminal-ipa
+          path: MyTerminalApp.ipa
