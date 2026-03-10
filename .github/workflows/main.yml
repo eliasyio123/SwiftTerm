@@ -19,7 +19,7 @@ jobs:
           mkdir -p MyTerminalApp/MyTerminalApp
           cd MyTerminalApp
           
-          # Create Package.swift with Swift 5.10 AND defaultLocalization
+          # Create Package.swift - iOS ONLY, no macOS
           cat > Package.swift << 'EOF'
           // swift-tools-version:5.10
           import PackageDescription
@@ -27,7 +27,9 @@ jobs:
           let package = Package(
               name: "MyTerminalApp",
               defaultLocalization: "en",
-              platforms: [.iOS(.v15)],
+              platforms: [
+                  .iOS(.v15)  // iOS only - avoids macOS version conflict
+              ],
               products: [
                   .executable(name: "MyTerminalApp", targets: ["MyTerminalApp"])
               ],
@@ -46,7 +48,7 @@ jobs:
           )
           EOF
           
-          # Create main.swift with corrected @main
+          # Create main.swift (same as before)
           cat > MyTerminalApp/main.swift << 'EOF'
           import SwiftTerm
           import UIKit
@@ -88,7 +90,7 @@ jobs:
           }
           EOF
           
-          # Create Info.plist
+          # Create Info.plist (same as before)
           cat > MyTerminalApp/Info.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -170,13 +172,13 @@ jobs:
         run: |
           cd MyTerminalApp
           
-          # Build using SwiftPM
+          # Build using SwiftPM for iOS
           swift build \
             -c release \
             -Xswiftc "-sdk" \
-            -Xswiftc "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
+            -Xswiftc "$(xcrun --sdk iphoneos --show-sdk-path)" \
             -Xswiftc "-target" \
-            -Xswiftc "arm64-apple-ios15.0-simulator"
+            -Xswiftc "arm64-apple-ios15.0"
           
           # Find the built executable
           APP_EXEC=$(find .build -name "MyTerminalApp" -type f | head -1)
